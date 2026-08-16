@@ -1,14 +1,15 @@
-FROM node:20-alpine AS deps
+FROM python:3.12-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM node:20-alpine AS runner
+FROM python:3.12-slim AS runner
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json ./
-COPY src ./src
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=deps /install /usr/local
+COPY app ./app
 
 EXPOSE 3001
-CMD ["node", "src/index.js"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3001"]
