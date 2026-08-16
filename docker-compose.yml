@@ -25,3 +25,41 @@ services:
     depends_on:
       mcp-server:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  playground:
+    build:
+      context: ./playground
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      GATEWAY_URL: http://gateway:3000
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+    depends_on:
+      gateway:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+volumes:
+  ollama_data:
