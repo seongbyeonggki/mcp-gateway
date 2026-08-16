@@ -42,7 +42,7 @@ jobs:
         run: |
           TOKEN=$(curl -s -X POST http://localhost:3000/auth/token \
             -H "Content-Type: application/json" \
-            -d '{"userId":"ci-user"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+            -d '{"userId":"ci-user"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
       - name: Call calculate tool (6 x 7 = 42)
