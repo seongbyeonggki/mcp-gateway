@@ -41,15 +41,11 @@ def get_current_time() -> str:
 async def health(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok", "service": "mcp-server"})
 
-mcp.tool()
-def lower_case(
-    a: str) -> str:
+@mcp.tool()
+def lower_case(a: str) -> str:
     """Convert a string to lowercase."""
     return a.lower()
 
 app = mcp.streamable_http_app()
 app.routes.append(Route("/health", health))
-
-
-#수정합니다.abs
 

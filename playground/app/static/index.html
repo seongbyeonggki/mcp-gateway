@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MCP Gateway Playground</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px;
+    background: #0f1115;
+    color: #e6e6e6;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #9aa0a6; font-size: 13px; margin-bottom: 20px; }
+  a { color: #7aa2f7; }
+  .panel {
+    background: #171a21;
+    border: 1px solid #2a2e37;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  #tools { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tool-chip {
+    background: #232733;
+    border: 1px solid #343a46;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: default;
+  }
+  #log {
+    height: 420px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px;
+  }
+  .msg { padding: 10px 12px; border-radius: 8px; max-width: 85%; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: #2b3a55; }
+  .msg.assistant { align-self: flex-start; background: #232733; }
+  .msg.error { background: #3a2020; border: 1px solid #6a3030; }
+  .flow {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-left: 2px solid #343a46;
+    padding-left: 12px;
+    margin: 4px 0;
+  }
+  .step {
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+    border: 1px solid #2a2e37;
+  }
+  .step-head { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; align-items: baseline; }
+  .step-title { font-weight: 600; }
+  .step-dur { color: #9aa0a6; font-size: 11px; white-space: nowrap; }
+  .step-detail { margin-top: 6px; white-space: pre-wrap; word-break: break-word; color: #c7c9cd; display: none; }
+  .step.open .step-detail { display: block; }
+  .step-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-right: 6px; }
+  .step.auth { background: #1a2233; border-color: #2b3a55; }
+  .step.auth .step-badge { background: #2b3a55; }
+  .step.mcp_connect, .step.mcp_list_tools { background: #1a2b2e; border-color: #234047; }
+  .step.mcp_connect .step-badge, .step.mcp_list_tools .step-badge { background: #234047; }
+  .step.llm { background: #241a33; border-color: #3a2b55; }
+  .step.llm .step-badge { background: #3a2b55; }
+  .step.tool_call { background: #1e2a20; border-color: #3a5a40; }
+  .step.tool_call .step-badge { background: #3a5a40; }
+  .step.tool_call.error { background: #3a2020; border-color: #6a3030; }
+  .step.tool_call.error .step-badge { background: #6a3030; }
+  form { display: flex; gap: 8px; margin-top: 12px; }
+  input[type=text] {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #343a46;
+    background: #0f1115;
+    color: #e6e6e6;
+  }
+  button {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    background: #4a6cf7;
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  select { padding: 6px; border-radius: 6px; background: #0f1115; color: #e6e6e6; border: 1px solid #343a46; }
+  .row { display: flex; justify-content: space-between; align-items: center; }
+</style>
+</head>
+<body>
+  <h1>MCP Gateway Playground</h1>
+  <div class="sub">
+    Gateway → mcp-server 툴 호출을 로컬 Ollama LLM으로 테스트합니다. ·
+    <a href="/docs" target="_blank">Swagger UI (/docs)</a>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <strong>등록된 MCP 툴</strong>
+      <div>
+        <label for="model">모델: </label>
+        <input id="model" type="text" value="" size="16" />
+      </div>
+    </div>
+    <div id="tools" style="margin-top: 10px;">불러오는 중...</div>
+  </div>
+
+  <div class="panel">
+    <div id="log"></div>
+    <form id="chat-form">
+      <input id="message" type="text" placeholder="예: 3과 7을 더하고 결과를 소문자로 알려줘" autocomplete="off" />
+      <button type="submit" id="send-btn">전송</button>
+    </form>
+  </div>
+
+<script>
+const logEl = document.getElementById('log');
+const form = document.getElementById('chat-form');
+const input = document.getElementById('message');
+const sendBtn = document.getElementById('send-btn');
+const modelInput = document.getElementById('model');
+let history = [];
+
+function addMsg(role, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  return div;
+}
+
+function newFlow() {
+  const wrap = document.createElement('div');
+  wrap.className = 'flow';
+  logEl.appendChild(wrap);
+  return wrap;
+}
+
+function appendStep(wrap, s, index) {
+  const step = document.createElement('div');
+  const isErrorTool = s.type === 'tool_call' && s.detail && s.detail.isError;
+  step.className = 'step open ' + s.type + (isErrorTool ? ' error' : '');
+
+  const head = document.createElement('div');
+  head.className = 'step-head';
+  const dur = s.durationMs != null ? `${s.durationMs}ms` : '';
+  head.innerHTML = `<span><span class="step-badge">${index}</span><span class="step-title"></span></span><span class="step-dur">${dur}</span>`;
+  head.querySelector('.step-title').textContent = s.title;
+
+  const detail = document.createElement('div');
+  detail.className = 'step-detail';
+  detail.textContent = JSON.stringify(s.detail, null, 2);
+
+  head.addEventListener('click', () => step.classList.toggle('open'));
+
+  step.appendChild(head);
+  step.appendChild(detail);
+  wrap.appendChild(step);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function loadTools() {
+  const toolsEl = document.getElementById('tools');
+  try {
+    const res = await fetch('/api/tools');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'failed');
+    toolsEl.innerHTML = '';
+    data.tools.forEach(t => {
+      const chip = document.createElement('span');
+      chip.className = 'tool-chip';
+      chip.title = t.description || '';
+      chip.textContent = t.name;
+      toolsEl.appendChild(chip);
+    });
+    if (data.tools.length === 0) toolsEl.textContent = '등록된 툴이 없습니다.';
+  } catch (err) {
+    toolsEl.textContent = '툴 목록을 불러오지 못했습니다: ' + err.message;
+  }
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const message = input.value.trim();
+  if (!message) return;
+  addMsg('user', message);
+  input.value = '';
+  sendBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history, model: modelInput.value.trim() }),
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'request failed');
+    }
+
+    const flowWrap = newFlow();
+    let stepCount = 0;
+    let reply = null;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        const evt = JSON.parse(line);
+        if (evt.type === 'error') {
+          addMsg('error', '오류: ' + evt.detail);
+        } else if (evt.type === 'final') {
+          reply = evt.reply;
+        } else {
+          stepCount += 1;
+          appendStep(flowWrap, evt, stepCount);
+        }
+      }
+    }
+
+    if (reply !== null) {
+      addMsg('assistant', reply);
+      history.push({ role: 'user', content: message });
+      history.push({ role: 'assistant', content: reply });
+    }
+  } catch (err) {
+    addMsg('error', '오류: ' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+  }
+});
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const data = await res.json();
+    modelInput.value = data.defaultModel;
+  } catch (err) {
+    modelInput.placeholder = '모델명 입력';
+  }
+}
+
+loadConfig();
+loadTools();
+</script>
+</body>
+</html>
