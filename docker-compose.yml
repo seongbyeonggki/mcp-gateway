@@ -1,0 +1,27 @@
+services:
+  mcp-server:
+    build:
+      context: ./mcp-server
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  gateway:
+    build:
+      context: ./gateway
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      MCP_SERVER_URL: http://mcp-server:3001
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      mcp-server:
+        condition: service_healthy

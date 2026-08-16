@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: ci-test-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and start services
+        run: docker compose up --build -d
+
+      - name: Wait for services
+        run: sleep 10
+
+      - name: Health check
+        run: |
+          curl --fail http://localhost:3000/health
+          curl --fail http://localhost:3001/health
+
+      - name: Check unauthorized access returns 401
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/mcp \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          if [ "$status" != "401" ]; then
+            echo "Expected 401, got $status"
+            exit 1
+          fi
+
+      - name: Issue token
+        id: token
+        run: |
+          TOKEN=$(curl -s -X POST http://localhost:3000/auth/token \
+            -H "Content-Type: application/json" \
+            -d '{"userId":"ci-user"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Call calculate tool (6 x 7 = 42)
+        run: |
+          RESPONSE=$(curl -s -X POST http://localhost:3000/mcp \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json, text/event-stream" \
+            -H "Authorization: Bearer ${{ steps.token.outputs.token }}" \
+            -d '{
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "tools/call",
+              "params": {
+                "name": "calculate",
+                "arguments": { "a": 6, "b": 7, "op": "multiply" }
+              }
+            }')
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep -q "42"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
